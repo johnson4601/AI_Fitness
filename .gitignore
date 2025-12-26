@@ -1,0 +1,7 @@
+.env
+.garth
+__pycache__/
+*.pyc
+garmin_stats.csv
+hevy_stats.csv
+garmin_runs.csv
