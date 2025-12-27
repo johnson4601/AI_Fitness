@@ -1,3 +1,14 @@
+![Visitors](https://api.visitorbadge.io/api/visitors?path=johnson4601/Fitness-Bot-V1&label=Visitors&countColor=%2337d67a)
+
+![GitHub stars](https://img.shields.io/github/stars/johnson4601/Fitness-Bot-V1?style=social)
+
+
+![GitHub all releases](https://img.shields.io/github/downloads/johnson4601/Fitness-Bot-V1/total)
+
+
+
+
+
 AI Fitness Data Pipeline (Garmin + Hevy)
 This project creates a "Cyber-Physical System" for your fitness data. It automatically pulls your biometrics (Garmin) and weightlifting data (Hevy), aggregates them into CSV files, and syncs them to a location of your choice (like Google Drive) for analysis by AI tools like Gemini or ChatGPT.
 
