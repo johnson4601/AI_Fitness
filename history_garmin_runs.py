@@ -3,54 +3,29 @@ from garminconnect import Garmin
 from datetime import date, timedelta
 import csv
 import os
-import time
-
-import os
 import sys
+import json
+import time
 from dotenv import load_dotenv
 
-# 1. Load configuration immediately
+# 1. Load configuration
 load_dotenv()
 
-# 2. Get the settings (with defaults for safety)
-# 'False' allows others to run it without the check. YOU set this to 'True' in your .env
+# 2. Safety Check
 check_mount = os.getenv("CHECK_MOUNT_STATUS", "False").lower() == "true"
 drive_path = os.getenv("DRIVE_MOUNT_PATH", "/home/pi/google_drive")
 
-# 3. The Safety Block
 if check_mount:
-    print(f"Safety Check: Verifying mount at {drive_path}...")
-    
     if not os.path.ismount(drive_path):
         print(f"CRITICAL ERROR: Drive is not mounted at {drive_path}.")
-        print("Stopping script to prevent writing to local storage.")
         sys.exit(1)
-    else:
-        print("Safety Check: PASSED. Drive is mounted.")
-
-# ... rest of your code ...
 
 # --- CONFIGURATION ---
 TOKEN_DIR = ".garth"
-CSV_FILE = r"G:\My Drive\Gemini Gems\Personal trainer\garmin_runs.csv"
-START_DATE = "2023-01-01" # How far back to go?
+SAVE_PATH = os.getenv("SAVE_PATH")
+CSV_FILE = os.path.join(SAVE_PATH, "garmin_runs.csv") if SAVE_PATH else "garmin_runs.csv"
+START_DATE = "2023-01-01" 
 # ---------------------
-
-def get_safe(data, *keys):
-    try:
-        for key in keys:
-            data = data[key]
-        return data
-    except (KeyError, TypeError, AttributeError):
-        return None
-
-def format_pace(speed_mps):
-    """Converts meters/sec to Min/Mile (e.g., 8:30)"""
-    if not speed_mps or speed_mps <= 0: return None
-    mins_per_mile = 26.8224 / speed_mps
-    minutes = int(mins_per_mile)
-    seconds = int((mins_per_mile - minutes) * 60)
-    return f"{minutes}:{seconds:02d}"
 
 def main():
     print("1. Loading tokens...")
@@ -64,28 +39,28 @@ def main():
 
     print(f"2. Fetching runs from {START_DATE}...")
 
-    # Create folder if missing
+    # Ensure folder exists
     folder_path = os.path.dirname(CSV_FILE)
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
-    # Write Headers
-    if not os.path.isfile(CSV_FILE):
-        with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "Date", "Time", "Title", "Distance (mi)", "Duration (min)", 
-                "Avg Pace (min/mi)", "Avg HR", "Max HR", "Cadence", 
-                "Elevation Gain (ft)", "Aerobic TE", "Anaerobic TE", "Calories"
-            ])
+    # WRITE HEADERS (Overwrite mode for fresh history)
+    with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+             "Date", "Time", "activityName", "activityType_typeKey", 
+             "duration", "elapsedDuration", "movingDuration", 
+             "averageSpeed", "averageHR", "maxHR", "steps", 
+             "summarizedExerciseSets", "totalSets", "activeSets", "totalReps", 
+             "trainingEffectLabel", "activityTrainingLoad", "minActivityLapDuration", 
+             "hrTimeInZone_1", "hrTimeInZone_2", "hrTimeInZone_3", "hrTimeInZone_4"
+        ])
 
-    # Fetch activities in chunks
     start = date.fromisoformat(START_DATE)
     end = date.today()
-    
-    # Garmin API fetches by "count" typically, but get_activities_by_date is easier for ranges
-    # We'll do 30 day chunks to be safe
     current = start
+    total_saved = 0
+
     while current < end:
         chunk_end = current + timedelta(days=30)
         if chunk_end > end: chunk_end = end
@@ -98,58 +73,62 @@ def main():
             new_rows = []
             if activities:
                 for act in activities:
-                    # Basic Fields
                     start_local = act.get('startTimeLocal', '')
                     date_str = start_local[:10]
                     time_str = start_local[11:]
+                    
+                    # Extract Data
                     title = act.get('activityName', 'Run')
+                    atype_key = act.get('activityType', {}).get('typeKey', 'running')
                     
-                    # Metrics
-                    dist_m = act.get('distance', 0)
-                    dist_mi = round(dist_m * 0.000621371, 2)
-                    
-                    dur_s = act.get('duration', 0)
-                    dur_min = round(dur_s / 60, 2)
-                    
-                    speed_mps = act.get('averageSpeed', 0)
-                    avg_pace = format_pace(speed_mps)
-                    
-                    hr = act.get('averageHR')
+                    dur = act.get('duration', 0)
+                    elapsed = act.get('elapsedDuration', 0)
+                    moving = act.get('movingDuration', 0)
+                    avg_spd = act.get('averageSpeed', 0)
+                    avg_hr = act.get('averageHR')
                     max_hr = act.get('maxHR')
-                    cadence = act.get('averageRunningCadenceInStepsPerMinute')
+                    steps = act.get('steps')
                     
-                    elev_m = act.get('totalElevationGain', 0)
-                    elev_ft = round(elev_m * 3.28084, 0) if elev_m else 0
+                    # Sets/Reps (JSON dump complex lists)
+                    summ_sets = json.dumps(act.get('summarizedExerciseSets', []))
+                    t_sets = act.get('totalSets')
+                    a_sets = act.get('activeSets')
+                    t_reps = act.get('totalReps')
                     
-                    cal = act.get('calories')
+                    te_lbl = act.get('trainingEffectLabel')
+                    load = act.get('activityTrainingLoad')
+                    min_lap = act.get('minActivityLapDuration')
                     
-                    # Training Effect (TE)
-                    aero_te = act.get('aerobicTrainingEffect')
-                    ana_te = act.get('anaerobicTrainingEffect')
+                    # Zones
+                    z1 = act.get('hrTimeInZone_1')
+                    z2 = act.get('hrTimeInZone_2')
+                    z3 = act.get('hrTimeInZone_3')
+                    z4 = act.get('hrTimeInZone_4')
 
                     new_rows.append([
-                        date_str, time_str, title, dist_mi, dur_min, 
-                        avg_pace, hr, max_hr, cadence, elev_ft, aero_te, ana_te, cal
+                        date_str, time_str, title, atype_key,
+                        dur, elapsed, moving, avg_spd, avg_hr, max_hr, steps,
+                        summ_sets, t_sets, a_sets, t_reps,
+                        te_lbl, load, min_lap, z1, z2, z3, z4
                     ])
             
-            # Save chunk
             if new_rows:
-                # Sort by date
                 new_rows.sort(key=lambda x: x[0])
                 with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerows(new_rows)
-                print(f" Saved {len(new_rows)} runs.")
+                print(f" Saved {len(new_rows)}.")
+                total_saved += len(new_rows)
             else:
-                print(" No runs.")
+                print(" No data.")
 
         except Exception as e:
             print(f" Error: {e}")
 
         current = chunk_end + timedelta(days=1)
-        time.sleep(1) # Pause between chunks
+        time.sleep(1) 
 
-    print("--- HISTORY PULL COMPLETE ---")
+    print(f"--- COMPLETE. Saved {total_saved} records. ---")
 
 if __name__ == "__main__":
     main()

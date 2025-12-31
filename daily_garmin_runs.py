@@ -3,59 +3,35 @@ from garminconnect import Garmin
 from datetime import date, timedelta
 import csv
 import os
-from dotenv import load_dotenv
-
-
-import os
 import sys
+import json
 from dotenv import load_dotenv
 
-# 1. Load configuration immediately
+# 1. Load configuration
 load_dotenv()
 
-# 2. Get the settings (with defaults for safety)
-# 'False' allows others to run it without the check. YOU set this to 'True' in your .env
+# 2. Safety Check
 check_mount = os.getenv("CHECK_MOUNT_STATUS", "False").lower() == "true"
 drive_path = os.getenv("DRIVE_MOUNT_PATH", "/home/pi/google_drive")
 
-# 3. The Safety Block
 if check_mount:
     print(f"Safety Check: Verifying mount at {drive_path}...")
-    
     if not os.path.ismount(drive_path):
         print(f"CRITICAL ERROR: Drive is not mounted at {drive_path}.")
-        print("Stopping script to prevent writing to local storage.")
         sys.exit(1)
-    else:
-        print("Safety Check: PASSED. Drive is mounted.")
 
-# ... rest of your code ...
-
-# --- CONFIGURATION VIA ENVIRONMENT ---
-load_dotenv()
+# --- CONFIGURATION ---
 SAVE_PATH = os.getenv("SAVE_PATH")
-
-if SAVE_PATH:
-    CSV_FILE = os.path.join(SAVE_PATH, "garmin_runs.csv")
-else:
-    print("WARNING: SAVE_PATH not set in .env. Using current folder.")
-    CSV_FILE = "garmin_runs.csv"
-
+CSV_FILE = os.path.join(SAVE_PATH, "garmin_runs.csv") if SAVE_PATH else "garmin_runs.csv"
 TOKEN_DIR = ".garth"
-# -------------------------------------
+# ---------------------
 
-def format_pace(speed_mps):
-    if not speed_mps or speed_mps <= 0: return None
-    mins_per_mile = 26.8224 / speed_mps
-    minutes = int(mins_per_mile)
-    seconds = int((mins_per_mile - minutes) * 60)
-    return f"{minutes}:{seconds:02d}"
+def safe_get(data, key, default=None):
+    return data.get(key, default)
 
 def main():
-    # 1. Load Existing Data
+    # 1. Load Existing IDs
     existing_ids = set()
-    
-    # Ensure folder exists
     folder_path = os.path.dirname(CSV_FILE)
     if folder_path and not os.path.exists(folder_path):
         os.makedirs(folder_path)
@@ -87,6 +63,7 @@ def main():
     print(f"Checking runs from {start_check}...")
 
     try:
+        # Note: If you want Strength stats too, change "running" to None or check your filters
         activities = api.get_activities_by_date(start_check.isoformat(), today.isoformat(), "running")
         
         new_rows = []
@@ -100,37 +77,85 @@ def main():
                 if sig in existing_ids:
                     continue
 
+                # --- 4. DEEP DIVE (Daily Only) ---
+                # Some fields like hrTimeInZone or sets might be missing from the summary.
+                # We fetch the full activity details for these few new items.
+                activity_id = act.get('activityId')
+                full_details = {}
+                try:
+                    # Attempt to fetch full details if needed (warning: adds API time)
+                    # For simple runs, summary is often enough, but for zones we might need more.
+                    # We will rely on summary first, if missing and critical, you could enable:
+                    # full_details = api.get_activity_details(activity_id) 
+                    pass 
+                except:
+                    pass
+
+                # --- FIELD EXTRACTION ---
+                # Basic
                 title = act.get('activityName', 'Run')
-                dist_m = act.get('distance', 0)
-                dist_mi = round(dist_m * 0.000621371, 2)
-                dur_s = act.get('duration', 0)
-                dur_min = round(dur_s / 60, 2)
-                speed_mps = act.get('averageSpeed', 0)
-                avg_pace = format_pace(speed_mps)
-                hr = act.get('averageHR')
+                atype_key = act.get('activityType', {}).get('typeKey', 'running')
+                
+                # Time & Dist
+                dur = act.get('duration', 0)
+                elapsed = act.get('elapsedDuration', 0)
+                moving = act.get('movingDuration', 0)
+                
+                # Speed / HR / Steps
+                avg_spd = act.get('averageSpeed', 0)
+                avg_hr = act.get('averageHR')
                 max_hr = act.get('maxHR')
-                cadence = act.get('averageRunningCadenceInStepsPerMinute')
-                elev_m = act.get('totalElevationGain', 0)
-                elev_ft = round(elev_m * 3.28084, 0) if elev_m else 0
-                aero_te = act.get('aerobicTrainingEffect')
-                ana_te = act.get('anaerobicTrainingEffect')
-                cal = act.get('calories')
+                steps = act.get('steps')
+                
+                # Strength / Reps (Likely 0 for runs)
+                # summaries often come as a list of dicts. We JSON stringify it to fit in CSV.
+                summ_sets_raw = act.get('summarizedExerciseSets')
+                summ_sets_str = json.dumps(summ_sets_raw) if summ_sets_raw else ""
+                
+                total_sets = act.get('totalSets')
+                active_sets = act.get('activeSets')
+                total_reps = act.get('totalReps')
+                
+                # Training Load / Effect
+                te_label = act.get('trainingEffectLabel')
+                load = act.get('activityTrainingLoad')
+                min_lap = act.get('minActivityLapDuration')
+
+                # HR Zones (This usually requires specific extraction logic)
+                # If these keys exist directly in your export data, we grab them.
+                # Otherwise, we might need to look into 'userSettings' or specific zone arrays.
+                # For now, we try direct access as requested:
+                z1 = act.get('hrTimeInZone_1')
+                z2 = act.get('hrTimeInZone_2')
+                z3 = act.get('hrTimeInZone_3')
+                z4 = act.get('hrTimeInZone_4')
 
                 new_rows.append([
-                    date_str, time_str, title, dist_mi, dur_min, 
-                    avg_pace, hr, max_hr, cadence, elev_ft, aero_te, ana_te, cal
+                    date_str, time_str, title, atype_key,
+                    dur, elapsed, moving, avg_spd, avg_hr, max_hr, steps,
+                    summ_sets_str, total_sets, active_sets, total_reps,
+                    te_label, load, min_lap, z1, z2, z3, z4
                 ])
         
         if new_rows:
+            # Check if file exists to determine if we write headers
             is_new = not os.path.isfile(CSV_FILE)
+            
             with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 if is_new:
-                     writer.writerow(["Date", "Time", "Title", "Distance (mi)", "Duration (min)", "Avg Pace", "Avg HR", "Max HR", "Cadence", "Elevation Gain (ft)", "Aerobic TE", "Anaerobic TE", "Calories"])
+                     writer.writerow([
+                         "Date", "Time", "activityName", "activityType_typeKey", 
+                         "duration", "elapsedDuration", "movingDuration", 
+                         "averageSpeed", "averageHR", "maxHR", "steps", 
+                         "summarizedExerciseSets", "totalSets", "activeSets", "totalReps", 
+                         "trainingEffectLabel", "activityTrainingLoad", "minActivityLapDuration", 
+                         "hrTimeInZone_1", "hrTimeInZone_2", "hrTimeInZone_3", "hrTimeInZone_4"
+                     ])
                 writer.writerows(new_rows)
-            print(f"SUCCESS: Added {len(new_rows)} new runs.")
+            print(f"SUCCESS: Added {len(new_rows)} new activities.")
         else:
-            print("No new runs found.")
+            print("No new activities found.")
 
     except Exception as e:
         print(f"Error: {e}")
