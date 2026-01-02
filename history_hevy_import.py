@@ -5,6 +5,31 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv  # <--- Loads the secret file
 
+import os
+import sys
+from dotenv import load_dotenv
+
+# 1. Load configuration immediately
+load_dotenv()
+
+# 2. Get the settings (with defaults for safety)
+# 'False' allows others to run it without the check. YOU set this to 'True' in your .env
+check_mount = os.getenv("CHECK_MOUNT_STATUS", "False").lower() == "true"
+drive_path = os.getenv("DRIVE_MOUNT_PATH", "/home/pi/google_drive")
+
+# 3. The Safety Block
+if check_mount:
+    print(f"Safety Check: Verifying mount at {drive_path}...")
+    
+    if not os.path.ismount(drive_path):
+        print(f"CRITICAL ERROR: Drive is not mounted at {drive_path}.")
+        print("Stopping script to prevent writing to local storage.")
+        sys.exit(1)
+    else:
+        print("Safety Check: PASSED. Drive is mounted.")
+
+# ... rest of your code ...
+
 # --- CONFIGURATION VIA ENVIRONMENT ---
 # 1. Load the secrets
 load_dotenv()
