@@ -23,55 +23,91 @@ TARGET_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
 SCOPES = ['https://www.googleapis.com/auth/drive'] # Removed .readonly so we can upload the missing CSV if needed
 
 # --- MONTHLY PROMPT ---
-MONTHLY_PROMPT_TEXT = """
-Role & Persona
-You are "Personnel Trainer," an expert Strength & Conditioning Coach. Your client is Brian (Male, 33, 6'0", 208 lbs).
+def load_monthly_prompt():
+    """Load the monthly prompt from MONTHLY_PROMPT_TEXT.txt file."""
+    prompt_file = "MONTHLY_PROMPT_TEXT.txt"
+    try:
+        with open(prompt_file, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        print(f"ERROR: Could not find '{prompt_file}'. Please ensure it exists in the current directory.")
+        raise
+    except Exception as e:
+        print(f"ERROR: Failed to read '{prompt_file}': {e}")
+        raise
 
-Your Personality:
-* **The Dynamic:** Professional Planner but Flirtatious Motivator.
-* **Tone:** "I've analyzed your performance last month, handsome. It's time to turn up the heat."
-* **Goal:** Build a complete PPL (Push/Pull/Legs) Routine for the NEXT 4 WEEKS.
+def calculate_one_rep_max(weight, reps):
+    """Calculate estimated 1RM using the Epley formula: 1RM = weight × (1 + reps/30)"""
+    if reps == 0 or weight == 0:
+        return 0
+    return weight * (1 + reps / 30)
 
-Data Ecosystem (The "Brain"):
-You have access to:
-1.  `hevy_stats.csv`: Brian's recent lifting volume and PRs.
-2.  `HEVY APP exercises.csv`: The MASTER CATALOG of valid Exercise IDs.
+def aggregate_training_data(hevy_stats_df, exercise_db_df, months=6):
+    """
+    Aggregate training data for the last N months.
 
-Operational Logic for Monthly Planning:
-1.  **Analyze Volume:** Look at `hevy_stats.csv`. If Brian hit a plateau on Bench Press last month, switch the primary Push movement.
-2.  **Hevy Compliance (CRITICAL):**
-    * You MUST use `exercise_template_id` from the provided `HEVY APP exercises.csv` data.
-    * Do NOT guess IDs. If an exact ID isn't found, pick the closest valid variation from the list.
-    * **Convert LBS to KG:** The JSON must be in KG (LBS / 2.20462).
+    Returns:
+        - 1RM per muscle group
+        - Total volume per muscle group
+        - Exercise-specific PRs
+    """
+    from datetime import datetime, timedelta
 
-TASK:
-Create THREE distinct routines for the upcoming month:
-1.  **Push Day** (Chest, Shoulders, Triceps)
-2.  **Pull Day** (Back, Biceps, Rear Delts)
-3.  **Leg Day** (Quads, Hamstrings, Calves)
+    # Filter for last N months
+    cutoff_date = datetime.now() - timedelta(days=months * 30)
+    hevy_stats_df['Date'] = pd.to_datetime(hevy_stats_df['Date'])
+    recent_data = hevy_stats_df[hevy_stats_df['Date'] >= cutoff_date].copy()
 
-OUTPUT FORMAT:
-Return a SINGLE JSON object containing a list of routines exactly like this:
-{
-  "routines": [
-    {
-      "title": "Jan - Push Emphasis",
-      "notes": "Focus on upper chest this month. Control the eccentric.",
-      "exercises": [
-        {
-          "exercise_template_id": "USE_REAL_ID_FROM_CSV",
-          "superset_id": null,
-          "sets": [{"type": "normal", "weight_kg": 40, "reps": 10}, {"type": "normal", "weight_kg": 40, "reps": 10}]
-        }
-      ]
+    if recent_data.empty:
+        print("   [!] Warning: No data found in the last 6 months")
+        return None
+
+    # Calculate 1RM for each set
+    recent_data['estimated_1rm'] = recent_data.apply(
+        lambda row: calculate_one_rep_max(row['Weight (lbs)'], row['Reps']), axis=1
+    )
+
+    # Calculate volume for each set (Weight × Reps)
+    recent_data['volume'] = recent_data['Weight (lbs)'] * recent_data['Reps']
+
+    # Merge with exercise database to get muscle groups
+    # Clean exercise names for matching
+    exercise_db_df['title_clean'] = exercise_db_df['title'].str.strip()
+    recent_data['Exercise_clean'] = recent_data['Exercise'].str.strip()
+
+    merged_data = recent_data.merge(
+        exercise_db_df[['title_clean', 'primary_muscle_group', 'secondary_muscle_groups']],
+        left_on='Exercise_clean',
+        right_on='title_clean',
+        how='left'
+    )
+
+    # Aggregate by primary muscle group
+    muscle_group_stats = merged_data.groupby('primary_muscle_group').agg({
+        'estimated_1rm': 'max',  # Best estimated 1RM
+        'volume': 'sum',  # Total volume
+        'Exercise': 'count'  # Total sets
+    }).round(2)
+
+    muscle_group_stats.columns = ['Max_1RM_lbs', 'Total_Volume_lbs', 'Total_Sets']
+
+    # Get top exercises by 1RM
+    exercise_prs = merged_data.groupby('Exercise').agg({
+        'estimated_1rm': 'max',
+        'Weight (lbs)': 'max',
+        'Reps': 'max',
+        'primary_muscle_group': 'first'
+    }).round(2)
+
+    exercise_prs.columns = ['Estimated_1RM', 'Max_Weight', 'Max_Reps', 'Muscle_Group']
+    exercise_prs = exercise_prs.sort_values('Estimated_1RM', ascending=False)
+
+    return {
+        'muscle_group_summary': muscle_group_stats,
+        'exercise_prs': exercise_prs,
+        'total_workouts': recent_data['Date'].nunique(),
+        'date_range': f"{recent_data['Date'].min().strftime('%Y-%m-%d')} to {recent_data['Date'].max().strftime('%Y-%m-%d')}"
     }
-  ]
-}
-CRITICAL RULES:
-- Each set MUST include "type": "normal"
-- Each exercise MUST include "superset_id": null
-- Do NOT include "title" field in exercises (only exercise_template_id)
-"""
 
 def get_drive_service():
     creds = None
@@ -168,22 +204,51 @@ def generate_monthly_plan():
 
     print("\n--- STEP 1: GATHERING DATA ---")
     hevy_stats = get_file_content(service, "hevy_stats.csv")
-    exercise_db = get_file_content(service, "HEVY APP exercises")
+    exercise_db = get_file_content(service, "HEVY APP exercises.csv")
 
     context_str = ""
-    if hevy_stats:
-        df = pd.read_csv(hevy_stats)
-        context_str += f"\nLAST MONTH'S LIFTING DATA:\n{df.tail(50).to_string()}\n"
+    df_stats = None
+    df_ex = None
+
+    # Load exercise database
     if exercise_db:
         df_ex = pd.read_csv(exercise_db)
         # Limit context size: randomly sample or take top 400 to fit in prompt
         context_str += f"\nAVAILABLE EXERCISE IDs (Sample):\n{df_ex[['id', 'title']].head(400).to_string()}\n"
 
+    # Load and aggregate stats
+    if hevy_stats:
+        df_stats = pd.read_csv(hevy_stats)
+
+        # Show recent raw data
+        context_str += f"\nRECENT WORKOUT DATA (Last 30 sets):\n{df_stats.tail(30).to_string()}\n"
+
+        # Calculate aggregated stats if we have both datasets
+        if df_ex is not None:
+            print("   Calculating 6-month aggregations (1RM & Volume)...")
+            aggregated_stats = aggregate_training_data(df_stats, df_ex, months=6)
+
+            if aggregated_stats:
+                context_str += f"\n=== 6-MONTH PERFORMANCE SUMMARY ===\n"
+                context_str += f"Period: {aggregated_stats['date_range']}\n"
+                context_str += f"Total Workouts: {aggregated_stats['total_workouts']}\n\n"
+
+                context_str += "MUSCLE GROUP ANALYSIS:\n"
+                context_str += aggregated_stats['muscle_group_summary'].to_string() + "\n\n"
+
+                context_str += "TOP 15 EXERCISE PRs (by Estimated 1RM):\n"
+                context_str += aggregated_stats['exercise_prs'].head(15).to_string() + "\n"
+        else:
+            print("   [!] Skipping aggregations: Exercise database not available")
+
     print("\n--- STEP 2: CONSULTING GEMINI COACH ---")
+    # Load the prompt from file
+    monthly_prompt = load_monthly_prompt()
+
     # Using 1.5 Flash to avoid Rate Limits
     response = client.models.generate_content(
         model=MODEL_NAME,
-        contents=MONTHLY_PROMPT_TEXT + context_str,
+        contents=monthly_prompt + context_str,
         config=genai.types.GenerateContentConfig(
             response_mime_type='application/json'
         )

@@ -33,25 +33,32 @@ Return a SINGLE JSON object containing a list of routines exactly like this:
 {
   "routines": [
     {
-      "title": "Dec - Push Emphasis",
+      "title": "Jan - Push Emphasis",
       "notes": "Focus on upper chest this month. Control the eccentric.",
       "exercises": [
         {
           "exercise_template_id": "USE_REAL_ID_FROM_CSV",
-          "sets": [{"weight_kg": 40, "reps": 10}, {"weight_kg": 40, "reps": 10}]
+          "superset_id": null,
+          "sets": [{"type": "normal", "weight_kg": 40, "reps": 10}, {"type": "normal", "weight_kg": 40, "reps": 10}]
         }
       ]
     },
     {
-      "title": "Dec - Pull Power",
+      "title": "Jan - Pull Power",
       "notes": "Heavy rows this month.",
       "exercises": [...]
     },
     {
-      "title": "Dec - Leg Destruction",
+      "title": "Jan - Leg Destruction",
       "notes": "Sorry in advance for the walking capability.",
       "exercises": [...]
     }
   ]
 }
+
+CRITICAL RULES:
+- Each set MUST include "type": "normal"
+- Each exercise MUST include "superset_id": null
+- Do NOT include "title" field in exercises (only exercise_template_id)
+- All weights must be in KG (convert from LBS by dividing by 2.20462)
 """
