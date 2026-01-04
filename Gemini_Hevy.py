@@ -5,6 +5,7 @@ import json
 import pandas as pd
 import requests
 import time
+from datetime import datetime, timedelta
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -20,7 +21,10 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 HEVY_API_KEY = os.getenv("HEVY_API_KEY")
 TARGET_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
-SCOPES = ['https://www.googleapis.com/auth/drive'] # Removed .readonly so we can upload the missing CSV if needed
+SCOPES = [
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/spreadsheets.readonly'
+]
 
 # --- MONTHLY PROMPT ---
 def load_monthly_prompt():
@@ -35,6 +39,41 @@ def load_monthly_prompt():
     except Exception as e:
         print(f"ERROR: Failed to read '{prompt_file}': {e}")
         raise
+
+def get_smart_memory_context(file_content_bytes):
+    """
+    Parses the Memory Log CSV bytes and returns a filtered string containing ONLY:
+    1. 'Active' Goals
+    2. 'Medical' history (Safety critical)
+    3. Recent entries from the last 60 days
+    """
+    try:
+        # Convert bytes to string buffer for pandas
+        data_str = file_content_bytes.decode('utf-8')
+        df = pd.read_csv(io.StringIO(data_str))
+
+        # 1. Capture 'Active' Goals and 'Medical' Records (Always Relevant)
+        # Normalize to lowercase for safe matching
+        always_keep = df[
+            (df['Date'].astype(str).str.lower() == 'active') |
+            (df['Category'].astype(str).str.lower() == 'medical')
+        ].copy()
+
+        # 2. Filter Dated Entries (Recent History Only)
+        dated_rows = df[df['Date'].astype(str).str.lower() != 'active'].copy()
+        dated_rows['parsed_date'] = pd.to_datetime(dated_rows['Date'], errors='coerce')
+
+        # Set "Recent" window (e.g., last 60 days)
+        cutoff_date = datetime.now() - timedelta(days=60)
+        recent_rows = dated_rows[dated_rows['parsed_date'] >= cutoff_date]
+
+        # 3. Combine and clean up
+        final_df = pd.concat([always_keep, recent_rows]).drop(columns=['parsed_date'], errors='ignore')
+
+        return final_df.to_csv(index=False)
+
+    except Exception as e:
+        return f"Error reading memory log: {str(e)}"
 
 def calculate_one_rep_max(weight, reps):
     """Calculate estimated 1RM using the Epley formula: 1RM = weight × (1 + reps/30)"""
@@ -51,8 +90,6 @@ def aggregate_training_data(hevy_stats_df, exercise_db_df, months=6):
         - Total volume per muscle group
         - Exercise-specific PRs
     """
-    from datetime import datetime, timedelta
-
     # Filter for last N months
     cutoff_date = datetime.now() - timedelta(days=months * 30)
     hevy_stats_df['Date'] = pd.to_datetime(hevy_stats_df['Date'])
@@ -164,6 +201,48 @@ def fetch_and_save_hevy_exercises():
         print(f"   -> Failed to fetch exercises: {e}")
         return None
 
+def get_sheet_tab(service, filename, sheet_name):
+    """Fetch a specific tab from a Google Sheet and return as bytes (CSV format)."""
+    print(f"   Searching for '{filename}' sheet, tab '{sheet_name}' in Google Drive...")
+    query = f"'{TARGET_FOLDER_ID}' in parents and name = '{filename}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed=false"
+    results = service.files().list(q=query, pageSize=1, fields="files(id, name)").execute()
+    items = results.get('files', [])
+
+    if not items:
+        print(f"   [!] Warning: Could not find Google Sheet '{filename}' in Drive folder.")
+        return None
+
+    file_id = items[0]['id']
+
+    # Build Sheets API service to get specific tab
+    sheets_service = build('sheets', 'v4', credentials=service._http.credentials)
+
+    try:
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=file_id,
+            range=f"'{sheet_name}'"
+        ).execute()
+
+        values = result.get('values', [])
+        if not values:
+            print(f"   [!] Warning: Sheet '{sheet_name}' is empty.")
+            return None
+
+        # Convert to CSV format
+        import csv
+        output = io.StringIO()
+        writer = csv.writer(output)
+        for row in values:
+            writer.writerow(row)
+
+        csv_bytes = output.getvalue().encode('utf-8')
+        print(f"   -> Downloaded '{filename}' -> '{sheet_name}' ({len(values)} rows)")
+        return io.BytesIO(csv_bytes)
+
+    except Exception as e:
+        print(f"   [!] Error fetching sheet '{sheet_name}': {e}")
+        return None
+
 def get_file_content(service, filename):
     # First check if file exists locally
     if os.path.exists(filename):
@@ -205,8 +284,15 @@ def generate_monthly_plan():
     print("\n--- STEP 1: GATHERING DATA ---")
     hevy_stats = get_file_content(service, "hevy_stats.csv")
     exercise_db = get_file_content(service, "HEVY APP exercises.csv")
+    chat_memory = get_sheet_tab(service, "Chat Memory", "Memory Log")
 
     context_str = ""
+
+    # Load user context/memory (goals, medical history, recent notes)
+    if chat_memory:
+        print("   Processing Chat Memory for user context...")
+        memory_context = get_smart_memory_context(chat_memory.read())
+        context_str += f"\n=== USER CONTEXT & GOALS ===\n{memory_context}\n"
     df_stats = None
     df_ex = None
 

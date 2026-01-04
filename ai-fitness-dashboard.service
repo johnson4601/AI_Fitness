@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Fitness Dashboard (Streamlit)
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Documents/AI_Fitness
+Environment="PATH=/home/pi/Documents/AI_Fitness/venv/bin:/usr/bin"
+ExecStart=/home/pi/Documents/AI_Fitness/venv/bin/python -m streamlit run dashboard_local_server.py --server.port 8501 --server.headless true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

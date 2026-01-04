@@ -1,251 +1,303 @@
-# 🏋️ AI Fitness Data Pipeline (Garmin + Hevy)
+# AI Fitness Dashboard
 
-![Visitors](https://api.visitorbadge.io/api/visitors?path=johnson4601/Fitness-Bot-V1&label=Visitors&countColor=%2337d67a)
-![GitHub stars](https://img.shields.io/github/stars/johnson4601/Fitness-Bot-V1?style=social)
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
+![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-red)
+![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%20%7C%20Linux%20%7C%20Windows-green)
 
-**Automate your training data. Build your own AI Coach.**
+**Your personal fitness command center. Automate data collection. Visualize progress. Generate AI-powered workout plans.**
 
-This project creates a "Cyber-Physical System" for your fitness data. It automatically aggregates your biometrics (Garmin) and weightlifting data (Hevy), syncs them to a cloud location (Google Drive), and structures them for analysis by AI agents like **Google Gemini** or **ChatGPT**.
-
-By feeding this live data into an AI persona, you can generate hyper-personalized workout routines that adapt to your recovery, sleep, and strength progression in real-time.
-
----
-
-## 🚀 Features
-
-* **Biometric Sync:** Auto-pulls Weight, HRV, Sleep Score, and SpO2 from Garmin.
-* **Activity Sync:** Logs running metrics (Pace, HR Zones, Training Effect).
-* **Strength Log:** Archives every set, rep, and RPE from Hevy.
-* **AI Integration:** Includes a dedicated script (`Gemini_Hevy.py`) to generate 4-week PPL routines based on your history.
-* **Auto-Upload:** The AI-generated routine is automatically pushed back to your Hevy app.
+This project creates a comprehensive fitness tracking system that automatically aggregates your biometrics (Garmin) and weightlifting data (Hevy), displays them in a real-time dashboard, and uses AI (Google Gemini) to generate personalized workout routines.
 
 ---
 
-## 📂 Project Structure
+## Features
 
-```
-AI_Fitness/
-├── .env                      # API Keys and Secrets (You create this)
-├── .garth/                   # Hidden folder for Garmin tokens (Created by script)
-├── setup_garmin_login.py     # Run this ONCE to authenticate
-├── daily_garmin_health.py    # Pulls daily health stats (Sleep/HRV)
-├── daily_garmin_runs.py      # Pulls recent run activities
-├── daily_hevy_workouts.py    # Pulls recent lifting sessions
-├── Gemini_Hevy.py            # The AI Coach (Generates routines)
-├── MONTHLY_PROMPT_TEXT.txt   # AI Coach personality & instructions
-├── history_garmin_import.py  # Bulk import tool for Garmin data
-├── history_hevy_import.py    # Bulk import tool for Hevy data
-└── requirements.txt          # Python dependencies
-```
+### Dashboard
+- **Training Analytics** - Volume progression, muscle group distribution, workout history
+- **Recovery Metrics** - Sleep scores, HRV, weight trends, resting heart rate
+- **Cardio Tracking** - Running distance, pace trends, heart rate zones
+- **System Monitoring** - Task status, cron jobs, system vitals
+- **Trend Lines** - Smooth rolling averages overlay on charts
 
----
+### Data Sync
+- **Garmin Connect** - Sleep, HRV, weight, body composition, SpO2, respiration, VO2 Max
+- **Hevy App** - Workouts, exercises, sets, reps, RPE
+- **Running Activities** - Pace, distance, HR zones, training effect
 
-## 🛠️ Prerequisites
-
-**Python 3.9+**
-
-- Note: Ensure you check "Add Python to PATH" during installation.
-
-**Hevy Pro Account** (Required for API access)
-
-**Garmin Connect Account**
-
-**Google Cloud Project** (Enabled for Drive API & Gemini API)
-
-**Google Drive for Desktop** (Optional, but recommended for seamless cloud syncing)
+### AI Integration
+- **Gemini AI Coach** - Generates personalized 4-week PPL routines
+- **Auto-Upload** - Pushes AI-generated routines directly to Hevy app
+- **Smart Context** - Uses your training history and recovery data
 
 ---
 
-## 📥 Installation & Setup
+## Quick Start
 
-### 1. Clone & Install
+### 1. Clone & Setup
 
 ```bash
 git clone https://github.com/johnson4601/AI_Fitness.git
 cd AI_Fitness
 
 # Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Run interactive setup
+python3 setup.py
 ```
 
-### 2. Configure Environment (.env)
+The setup wizard will guide you through:
+- Installing dependencies
+- Configuring Garmin, Hevy, and Gemini integrations
+- Setting up scheduled tasks
+- Configuring dashboard autostart
 
-Create a file named `.env` in the root directory and add your credentials:
+### 2. Start Dashboard
+
+```bash
+streamlit run dashboard_local_server.py
+```
+
+Access at: `http://localhost:8501` (or `http://<pi-ip>:8501` from other devices)
+
+---
+
+## Project Structure
+
+```
+AI_Fitness/
+├── setup.py                  # Interactive setup wizard (START HERE)
+├── dashboard_local_server.py # Streamlit dashboard
+├── .env                      # Configuration (created by setup.py)
+│
+├── Daily Scripts (Cron)
+│   ├── daily_garmin_health.py   # Health metrics sync
+│   ├── daily_garmin_runs.py     # Running activities sync
+│   └── daily_hevy_workouts.py   # Workout sync
+│
+├── History Import (One-time)
+│   ├── history_garmin_import.py # Bulk import Garmin history
+│   ├── history_garmin_runs.py   # Bulk import run history
+│   └── history_hevy_import.py   # Bulk import Hevy history
+│
+├── AI Coach
+│   ├── Gemini_Hevy.py           # AI routine generator
+│   └── MONTHLY_PROMPT_TEXT.txt  # AI personality config
+│
+├── Auth
+│   ├── setup_garmin_login.py    # Garmin authentication
+│   ├── .garth/                  # Garmin tokens (auto-created)
+│   ├── credentials.json         # Google OAuth (you provide)
+│   └── token.pickle             # Google tokens (auto-created)
+│
+└── requirements.txt          # Python dependencies
+```
+
+---
+
+## Configuration
+
+### Environment Variables (.env)
+
+The setup wizard creates this automatically. Manual configuration:
 
 ```ini
-# --- API KEYS ---
-HEVY_API_KEY="your_hevy_api_key_here"
-GEMINI_API_KEY="your_google_gemini_api_key_here"
+# File Paths
+SAVE_PATH=/home/pi/GDrive/Gemini Gems/Personal trainer
+DRIVE_MOUNT_PATH=/home/pi/GDrive
 
-# --- GOOGLE DRIVE ---
-GOOGLE_DRIVE_FOLDER_ID="your_folder_id_here"
+# Garmin Connect
+GARMIN_EMAIL=your_email@example.com
+GARMIN_PASSWORD=your_password
 
-# --- GARMIN CREDENTIALS (Initial Setup Only) ---
-GARMIN_EMAIL="your_email@example.com"
-GARMIN_PASSWORD="your_password"
+# Hevy App (get from Hevy Settings > API)
+HEVY_API_KEY=your_hevy_api_key
 
-# --- PATHS ---
-SAVE_PATH="./data"
+# Google Services
+GEMINI_API_KEY=your_gemini_api_key
+GOOGLE_DRIVE_FOLDER_ID=your_folder_id
 
-# --- PLATFORM-SPECIFIC SETTINGS ---
-# Mount Safety Check (Raspberry Pi/Linux only)
-# Set to "True" on Raspberry Pi to verify rclone mount before writing
-# Automatically skipped on Windows - no configuration needed
-CHECK_MOUNT_STATUS="False"
-DRIVE_MOUNT_PATH="/home/pi/google_drive"
+# System Settings
+CHECK_MOUNT_STATUS=True
 ```
 
-### 3. Authentication
-
-**Step A: Garmin Login**
-
-Run the setup script. This saves a session token so you don't have to log in daily.
+### Reconfigure Anytime
 
 ```bash
-python setup_garmin_login.py
+python3 setup.py
 ```
 
-**Troubleshooting:** If this fails, delete the `.garth` folder, wait 15 minutes, and try again.
-
-**Step B: Google Drive**
-
-Download your OAuth `credentials.json` from Google Cloud, place it in the root folder, and run:
-
-```bash
-python Gemini_Hevy.py
-```
-
-This will open a browser to authorize access and generate a `token.pickle` file.
+Your existing settings are preserved - just press Enter to keep current values.
 
 ---
 
-## 🏃‍♂️ Usage
+## Raspberry Pi Setup
 
-### 1. Initialization (Backfill Data)
-
-Before setting up daily automation, run these importers to build your historical database:
+### Dashboard as a Service
 
 ```bash
-python history_hevy_import.py    # Imports all past lifts
-python history_garmin_import.py  # Imports past health stats
-python history_garmin_runs.py    # Imports past run activities
+# Copy service file
+sudo cp ai-fitness-dashboard.service /etc/systemd/system/
+
+# Enable and start
+sudo systemctl daemon-reload
+sudo systemctl enable ai-fitness-dashboard
+sudo systemctl start ai-fitness-dashboard
+
+# Check status
+sudo systemctl status ai-fitness-dashboard
 ```
 
-### 2. Generate AI Workout Routines
-
-The `Gemini_Hevy.py` script automatically:
-- Analyzes your last 6 months of training data
-- Calculates One-Rep Max (1RM) for each muscle group
-- Computes total volume per muscle group
-- Generates 3 personalized PPL routines (Push/Pull/Legs)
-- Uploads them directly to your Hevy app
+### Scheduled Tasks (Cron)
 
 ```bash
-python Gemini_Hevy.py
-```
-
-**Customization:** Edit `MONTHLY_PROMPT_TEXT.txt` to customize your AI coach's personality and workout preferences.
-
-### 3. Automation (Cron Jobs)
-
-To keep your AI "Brain" updated, set these scripts to run daily.
-
-**Example Crontab (Linux/Raspberry Pi):**
-
-```bash
-# Edit crontab
 crontab -e
+```
 
-# Run every night at 11:00 PM
-0 23 * * * /path/to/venv/bin/python /path/to/AI_Fitness/daily_garmin_health.py >> /var/log/fitness_health.log 2>&1
-5 23 * * * /path/to/venv/bin/python /path/to/AI_Fitness/daily_garmin_runs.py >> /var/log/fitness_runs.log 2>&1
-10 23 * * * /path/to/venv/bin/python /path/to/AI_Fitness/daily_hevy_workouts.py >> /var/log/fitness_hevy.log 2>&1
+Add these lines:
+```bash
+# Garmin health sync (every hour at :30)
+30 * * * * cd /home/pi/Documents/AI_Fitness && /usr/bin/python3 daily_garmin_health.py >> /home/pi/cron_log.txt 2>&1
+
+# Hevy workout sync (every hour at :35)
+35 * * * * cd /home/pi/Documents/AI_Fitness && /usr/bin/python3 daily_hevy_workouts.py >> /home/pi/cron_log.txt 2>&1
+
+# Garmin runs sync (every hour at :40)
+40 * * * * cd /home/pi/Documents/AI_Fitness && /usr/bin/python3 daily_garmin_runs.py >> /home/pi/cron_log.txt 2>&1
+
+# Monthly AI plan (1st of month at 1:00 AM)
+0 1 1 * * cd /home/pi/Documents/AI_Fitness && ./venv/bin/python Gemini_Hevy.py >> /home/pi/cron_log.txt 2>&1
+```
+
+### Google Drive Mount (rclone)
+
+```bash
+# Install rclone
+curl https://rclone.org/install.sh | sudo bash
+
+# Configure
+rclone config
+
+# Mount (add to /etc/fstab for boot)
+rclone mount gdrive: /home/pi/GDrive --vfs-cache-mode writes &
 ```
 
 ---
 
-## 🧠 AI Persona Setup (Gemini / ChatGPT)
+## Usage
 
-Once your data is live in Google Drive, you can configure a Gemini Gem or Custom GPT to act as your coach.
+### Initial Data Import
 
-**Knowledge Base:** Upload `garmin_stats.csv`, `hevy_stats.csv`, and `garmin_runs.csv`.
+Before automation, backfill your history:
 
-**System Instructions:** Paste the following prompt into your AI's configuration:
-
-```
-Role: You are an expert Strength and Conditioning Coach specialized in Hybrid Athlete preparation.
-
-Personality:
-- Strict but Flirtatious: You are data-driven but charismatic. Reward discipline with compliments ("Impressive lift, handsome"), but call out slacking immediately.
-
-Objective: Guide the user through a "Recomposition" phase (Lose Fat, Build Muscle) while improving 2-mile run time.
-
-Operational Rules:
-1. Recovery Matrix: Always scan garmin_stats.csv. If Sleep Score < 70 or HRV is "Unbalanced," strictly prescribe Active Recovery.
-2. Progressive Overload: Scan hevy_stats.csv. Ensure weights or reps are trending up on Compound Lifts.
-3. Run Pacing: Compare recent "Avg Pace" in garmin_runs.csv against the 2-mile goal.
-4. Response Protocol: Always check the CSV files before answering. If data is missing, demand an upload.
+```bash
+python3 history_hevy_import.py      # All past workouts
+python3 history_garmin_import.py    # Past health metrics
+python3 history_garmin_runs.py      # Past runs
 ```
 
----
+### Generate AI Workout Plan
 
-## ❓ Troubleshooting
-
-**"Python is not recognized"**
-- You didn't check "Add to PATH" when installing Python. Re-install Python and ensure that box is checked.
-
-**Garmin Login Fails**
-- Garmin security is strict. Delete the `.garth` folder, wait 15-30 minutes, and try `setup_garmin_login.py` again.
-
-**Files not updating**
-- Check your `.env` file and ensure `SAVE_PATH` points to a valid directory
-
-**Gemini routines fail to upload to Hevy**
-- Ensure your `MONTHLY_PROMPT_TEXT.txt` includes the required JSON format with `"type": "normal"` and `"superset_id": null` fields
-
----
-
-## 📊 Features Deep Dive
-
-### Automated 1RM Calculations
-The system uses the **Epley Formula** to estimate your one-rep max for each exercise:
-```
-1RM = weight × (1 + reps/30)
+```bash
+python3 Gemini_Hevy.py
 ```
 
-This data is used to track strength progression and inform AI-generated routines.
+This analyzes your last 6 months of data and creates personalized routines uploaded to Hevy.
 
-### Volume Tracking
-Total volume (Weight × Reps × Sets) is calculated per muscle group over 6 months, helping identify:
-- Overtraining risks
-- Muscle imbalances
-- Recovery needs
+### Dashboard Controls
 
----
-
-## 📝 License
-
-This project is open source and available under the [MIT License](LICENSE).
+Access from **System & Tools** tab:
+- **Run** buttons for manual task execution
+- **Restart Dashboard** / **Reboot System**
+- **Configuration** panel to view settings
+- **Monthly Prompt Editor** to customize AI coach
 
 ---
 
-## ☕ Support
+## Dashboard Screenshots
 
-If you find this project helpful for your own training:
+### Training Tab
+- Volume progression with trend lines
+- Muscle group distribution (pie + bar charts)
+- Cardio section with HR zones and pace trends
 
-[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/yourusername)
+### Recovery Tab
+- Body weight tracking
+- Sleep score & HRV trends
+- Daily steps and RHR
+
+### System Tab
+- Task status and scheduling
+- System vitals (CPU, RAM, temp)
+- Configuration management
 
 ---
 
-## 🤝 Contributing
+## Troubleshooting
 
-Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/johnson4601/AI_Fitness/issues).
+### Garmin Login Fails
+```bash
+rm -rf .garth
+# Wait 15-30 minutes (Garmin rate limiting)
+python3 setup_garmin_login.py
+```
+
+### Dashboard Won't Start
+```bash
+# Check logs
+sudo journalctl -u ai-fitness-dashboard -f
+
+# Restart service
+sudo systemctl restart ai-fitness-dashboard
+```
+
+### Missing Data in Charts
+- Check `.env` paths are correct
+- Verify CSV files exist in `SAVE_PATH`
+- Run daily scripts manually to test
+
+### Date Format Errors
+The system handles mixed date formats automatically. If issues persist:
+```bash
+# Check CSV format
+head -5 /path/to/garmin_stats.csv
+```
 
 ---
 
-**Built with 💪 for the data-driven athlete**
+## API Keys & Accounts
+
+| Service | Where to Get |
+|---------|--------------|
+| **Hevy API** | Hevy App → Settings → Account → API |
+| **Gemini API** | https://aistudio.google.com/apikey |
+| **Google Drive** | https://console.cloud.google.com (enable Drive API) |
+| **Garmin** | Your existing Garmin Connect account |
+
+---
+
+## Tech Stack
+
+- **Dashboard**: Streamlit + Plotly
+- **Data**: Pandas, CSV storage
+- **Garmin API**: garminconnect, garth
+- **Hevy API**: REST API
+- **AI**: Google Gemini (google-genai)
+- **Scheduling**: Cron + systemd
+
+---
+
+## Contributing
+
+Contributions welcome! Please check the [issues page](https://github.com/johnson4601/AI_Fitness/issues).
+
+---
+
+## License
+
+MIT License - see [LICENSE](LICENSE)
+
+---
+
+**Built for the data-driven athlete**

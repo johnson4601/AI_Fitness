@@ -37,10 +37,17 @@ elif check_mount and is_windows:
 
 # ... rest of your code ...
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION VIA ENVIRONMENT ---
+SAVE_PATH = os.getenv("SAVE_PATH")
+
+if SAVE_PATH:
+    CSV_FILE = os.path.join(SAVE_PATH, "garmin_history.csv")
+else:
+    print("WARNING: SAVE_PATH not set in .env. Using current folder.")
+    CSV_FILE = "garmin_history.csv"
+
 TOKEN_DIR = ".garth"
-CSV_FILE = "garmin_history.csv" # Saving to a separate file to be safe
-START_DATE = "2023-01-01"       # <--- CHANGE THIS DATE to how far back you want to go
+START_DATE = "2025-12-12"       # <--- CHANGE THIS DATE to how far back you want to go
 # ---------------------
 
 def get_safe(data, *keys):

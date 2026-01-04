@@ -91,6 +91,48 @@ def main():
         except:
             rhr, min_hr, max_hr, stress_avg, steps, vo2_max, spo2_avg, respiration_avg, cals_total, cals_active, cals_goal = [None] * 11
 
+        # 1b. Try dedicated endpoints for missing metrics
+        # SpO2
+        if spo2_avg is None:
+            try:
+                spo2_data = api.get_spo2_data(today)
+                if spo2_data:
+                    spo2_avg = get_safe(spo2_data, 'averageSpO2')
+                    if spo2_avg is None:
+                        spo2_avg = get_safe(spo2_data, 'latestSpO2')
+                    if spo2_avg is None:
+                        spo2_avg = get_safe(spo2_data, 'latestSpO2Value')
+            except:
+                pass
+
+        # Respiration
+        if respiration_avg is None:
+            try:
+                resp_data = api.get_respiration_data(today)
+                if resp_data:
+                    respiration_avg = get_safe(resp_data, 'avgWakingRespirationValue')
+                    if respiration_avg is None:
+                        respiration_avg = get_safe(resp_data, 'avgSleepRespirationValue')
+            except:
+                pass
+
+        # VO2 Max - try fitness stats
+        if vo2_max is None:
+            try:
+                if hasattr(api, 'get_max_metrics'):
+                    max_metrics = api.get_max_metrics(today)
+                    if max_metrics:
+                        # Look for VO2 max in various locations
+                        for metric in max_metrics if isinstance(max_metrics, list) else [max_metrics]:
+                            if get_safe(metric, 'generic', 'vo2MaxPreciseValue'):
+                                vo2_max = get_safe(metric, 'generic', 'vo2MaxPreciseValue')
+                                break
+                            if get_safe(metric, 'vo2MaxPreciseValue'):
+                                vo2_max = get_safe(metric, 'vo2MaxPreciseValue')
+                                break
+            except:
+                pass
+
         # 2. Sleep
         try:
             sleep_data = api.get_sleep_data(today)
@@ -107,10 +149,24 @@ def main():
 
         # 3. Training Status
         training_status = None
+        t_status = None
         try:
             if hasattr(api, 'get_training_status'):
                 t_status = api.get_training_status(today)
-                training_status = get_safe(t_status, 'mostRecentTerminatedTrainingStatus', 'status') 
+                # Try multiple paths for training status
+                training_status = get_safe(t_status, 'mostRecentTerminatedTrainingStatus', 'status')
+                if training_status is None:
+                    training_status = get_safe(t_status, 'trainingStatusData', 'status')
+                if training_status is None:
+                    training_status = get_safe(t_status, 'status')
+                if training_status is None and isinstance(t_status, list) and len(t_status) > 0:
+                    training_status = get_safe(t_status[0], 'status')
+
+                # Also try to get VO2 max from training status if still missing
+                if vo2_max is None and t_status:
+                    vo2_max = get_safe(t_status, 'vo2MaxValue')
+                    if vo2_max is None:
+                        vo2_max = get_safe(t_status, 'mostRecentTerminatedTrainingStatus', 'vo2MaxValue')
         except:
             pass
 
@@ -136,10 +192,25 @@ def main():
                 h = api.get_hrv_data(today)
             else:
                 h = api.connectapi(f"/hrv-service/hrv/daily/{today}")
+
             hrv_status = get_safe(h, 'hrvSummary', 'status')
+
+            # Try multiple HRV value sources in order of preference
             hrv_avg = get_safe(h, 'hrvSummary', 'weeklyAverage')
-        except:
-            pass
+            if hrv_avg is None:
+                hrv_avg = get_safe(h, 'hrvSummary', 'lastNightAvg')
+            if hrv_avg is None:
+                hrv_avg = get_safe(h, 'lastNightAvg')
+            if hrv_avg is None:
+                # Try to get from HRV values array
+                hrv_values = get_safe(h, 'hrvValues')
+                if hrv_values and len(hrv_values) > 0:
+                    # Get the most recent HRV reading
+                    hrv_avg = get_safe(hrv_values[-1], 'hrvValue')
+            if hrv_avg is None:
+                hrv_avg = get_safe(h, 'hrvValue')
+        except Exception as e:
+            print(f"HRV fetch error: {e}")
 
         # 6. Activities
         activity_str = ""
@@ -179,19 +250,45 @@ def main():
             os.makedirs(folder_path)
 
         file_exists = os.path.isfile(CSV_FILE)
-        
+        read_failed = False
+
+        def normalize_date(date_str):
+            """Normalize date string to ISO format for comparison"""
+            if not date_str:
+                return None
+            try:
+                # Try ISO format first (YYYY-MM-DD)
+                if '-' in date_str and len(date_str) == 10:
+                    return date_str
+                # Try US format (M/D/YYYY or MM/DD/YYYY)
+                if '/' in date_str:
+                    parts = date_str.split('/')
+                    if len(parts) == 3:
+                        month, day, year = parts
+                        return f"{year}-{int(month):02d}-{int(day):02d}"
+                return date_str
+            except:
+                return date_str
+
         if file_exists:
             try:
                 with open(CSV_FILE, mode='r', newline='') as f:
                     reader = csv.reader(f)
                     all_data = list(reader)
                     if all_data:
-                        rows = [row for row in all_data[1:] if row and row[0] != today]
+                        # Filter out rows for today's date (handles both formats)
+                        rows = [row for row in all_data[1:] if row and normalize_date(row[0]) != today]
             except Exception as e:
-                print(f"Warning reading existing CSV: {e}")
+                print(f"CRITICAL: Failed to read existing CSV: {e}")
+                print("Aborting to prevent data loss. Please check the file.")
+                read_failed = True
+
+        if read_failed:
+            return
 
         rows.append(new_row)
-        rows.sort(key=lambda x: x[0])
+        # Sort by normalized date
+        rows.sort(key=lambda x: normalize_date(x[0]) if x else '')
 
         with open(CSV_FILE, mode='w', newline='') as f:
             writer = csv.writer(f)
